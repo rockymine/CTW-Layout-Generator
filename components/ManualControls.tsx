@@ -4,6 +4,43 @@ import { POINT_COLORS } from './StrategicPointSymbol';
 
 const makeEdgeKey = (from: string, to: string) => [from, to].sort().join('--');
 
+// --- Reusable UI Components ---
+
+const Accordion: React.FC<{ title: string; children: React.ReactNode; defaultOpen?: boolean }> = ({ title, children, defaultOpen = false }) => {
+    const [isOpen, setIsOpen] = React.useState(defaultOpen);
+    return (
+        <div className="border-b border-gray-700">
+            <button
+                onClick={() => setIsOpen(!isOpen)}
+                className="w-full flex justify-between items-center p-4 text-left font-medium text-gray-200 hover:bg-gray-700/50 transition-colors"
+                aria-expanded={isOpen}
+            >
+                <span>{title}</span>
+                <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 transform transition-transform text-gray-400 ${isOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+            </button>
+            {isOpen && (
+                <div className="px-4 pb-4 space-y-4">
+                    {children}
+                </div>
+            )}
+        </div>
+    );
+};
+
+const ToggleSwitch: React.FC<{ label: string; checked: boolean; onChange: (checked: boolean) => void }> = ({ label, checked, onChange }) => (
+    <label className="flex items-center justify-between cursor-pointer py-1">
+        <span className="text-gray-300 text-sm">{label}</span>
+        <div className="relative">
+            <input type="checkbox" className="sr-only" checked={checked} onChange={e => onChange(e.target.checked)} />
+            <div className={`block w-10 h-6 rounded-full transition-colors ${checked ? 'bg-blue-600' : 'bg-gray-600'}`}></div>
+            <div className={`dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform transform ${checked ? 'translate-x-4' : 'translate-x-0'}`}></div>
+        </div>
+    </label>
+);
+
+
 interface ManualControlsProps {
     onUploadImage: (file: File) => void;
     onClearCanvas: () => void;
@@ -50,25 +87,6 @@ interface ManualControlsProps {
     setHighlightedRouteId: (id: string | null) => void;
 }
 
-const ControlSection: React.FC<{ title: string, children: React.ReactNode }> = ({ title, children }) => (
-    <div className="space-y-4 p-4 bg-gray-700/50 rounded-lg">
-        <h2 className="text-xl font-semibold text-white border-b border-gray-600 pb-2">{title}</h2>
-        <div className="space-y-4 pt-2">{children}</div>
-    </div>
-);
-
-const Checkbox: React.FC<{ label: string; checked: boolean; onChange: (checked: boolean) => void }> = ({ label, checked, onChange }) => (
-    <label className="flex items-center space-x-2 cursor-pointer">
-        <input
-            type="checkbox"
-            checked={checked}
-            onChange={(e) => onChange(e.target.checked)}
-            className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-500"
-        />
-        <span className="text-gray-300 text-sm">{label}</span>
-    </label>
-);
-
 const RadioGroup: React.FC<{ label: string; value: string; options: {value: string, label: string}[]; onChange: (value: string) => void; disabled?: boolean }> = ({ label, value, options, onChange, disabled }) => (
     <div>
         <label className="text-sm font-medium text-gray-400 mb-2 block">{label}</label>
@@ -80,7 +98,7 @@ const RadioGroup: React.FC<{ label: string; value: string; options: {value: stri
                     disabled={disabled}
                     className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                         value === opt.value
-                            ? 'bg-blue-600 text-white'
+                            ? 'bg-blue-600 text-white shadow-md'
                             : 'bg-gray-600 hover:bg-gray-500 text-gray-300'
                     } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
@@ -104,6 +122,53 @@ const NODE_TYPE_NAMES: Record<StrategicPointType, string> = {
     [StrategicPointType.CENTER_HUB]: 'Center Hub',
 };
 
+const NodeTypeIcon: React.FC<{ type: StrategicPointType, size?: number }> = ({ type, size = 20 }) => {
+    const color = POINT_COLORS[type];
+    const s = size * 0.7; // Scale factor for icon size within the viewbox
+    const x = size / 2;
+    const y = size / 2;
+
+    const getShape = () => {
+        const shapeProps = {
+            stroke: 'white',
+            strokeWidth: "1",
+            fill: color,
+        };
+
+        switch (type) {
+            case StrategicPointType.WOOL:
+                return <rect x={x - s / 2} y={y - s / 2} width={s} height={s} {...shapeProps} />;
+            case StrategicPointType.SPAWN:
+                return <circle cx={x} cy={y} r={s / 2} {...shapeProps} />;
+            case StrategicPointType.SPAWN_ENTRY:
+                return <path d={`M ${x - s/3} ${y - s/2} L ${x + s/2} ${y} L ${x - s/3} ${y + s/2} Z`} {...shapeProps} />;
+            case StrategicPointType.WOOL_ENTRY: {
+                const r = s / 2;
+                const pathData = Array.from({ length: 5 }).map((_, i) => { const a = 72 * i - 90; return `${x + r * Math.cos(a*Math.PI/180)},${y + r * Math.sin(a*Math.PI/180)}`; }).join(' L ');
+                return <path d={`M ${pathData} Z`} {...shapeProps} />;
+            }
+            case StrategicPointType.FRONT_LINE_ENTRY:
+                 return <path d={`M ${x} ${y - s/2} L ${x + s/2} ${y} L ${x} ${y + s/2} L ${x - s/2} ${y} Z`} {...shapeProps} />;
+            case StrategicPointType.FRONT_LINE: {
+                const r = s / 2;
+                const pathData = Array.from({ length: 6 }).map((_, i) => { const a = 60 * i - 90; return `${x + r * Math.cos(a*Math.PI/180)},${y + r * Math.sin(a*Math.PI/180)}`; }).join(' L ');
+                return <path d={`M ${pathData} Z`} {...shapeProps} />;
+            }
+            case StrategicPointType.HUB:
+                return <circle cx={x} cy={y} r={s / 3} {...shapeProps} />;
+            case StrategicPointType.CENTER_HUB:
+                return <path d={`M ${x - s/2.5} ${y - s/2.5} L ${x + s/2.5} ${y + s/2.5} M ${x - s/2.5} ${y + s/2.5} L ${x + s/2.5} ${y - s/2.5}`} stroke={color} strokeWidth="1.5" fill="none" />;
+            case StrategicPointType.ISLAND:
+                return <rect x={x - s / 3} y={y - s / 3} width={s/1.5} height={s/1.5} {...shapeProps} />;
+            case StrategicPointType.HELPER:
+                return <path d={`M ${x - s/3} ${y} L ${x + s/3} ${y} M ${x} ${y - s/3} L ${x} ${y + s/3}`} stroke={color} strokeWidth="1.5" fill="none" />;
+            default: return null;
+        }
+    };
+    return <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} aria-hidden="true">{getShape()}</svg>;
+}
+
+
 const NodeTypePalette: React.FC<{
     activePointType: StrategicPointType;
     setActivePointType: (type: StrategicPointType) => void;
@@ -115,7 +180,6 @@ const NodeTypePalette: React.FC<{
             <div className="grid grid-cols-5 gap-2">
                 {Object.values(StrategicPointType).map(pt => {
                     const isActive = activePointType === pt && !disabled;
-                    const color = POINT_COLORS[pt];
                     return (
                         <button
                             key={pt}
@@ -123,20 +187,19 @@ const NodeTypePalette: React.FC<{
                             disabled={disabled}
                             title={NODE_TYPE_NAMES[pt]}
                             className={`
-                                w-full aspect-square flex items-center justify-center font-mono font-bold text-sm rounded-md transition-all border-2
+                                w-full aspect-square flex items-center justify-center rounded-md transition-all border-2
                                 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-blue-500
                                 ${
                                     isActive
-                                        ? 'bg-gray-600 text-white'
+                                        ? 'bg-gray-600 border-blue-500'
                                         : 'bg-gray-700 border-transparent text-gray-300 hover:enabled:bg-gray-600 hover:enabled:border-gray-500'
                                 }
                                 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-transparent
                             `}
-                            style={isActive ? { borderColor: color } : {}}
                             aria-label={`Select node type ${NODE_TYPE_NAMES[pt]}`}
                             aria-pressed={isActive}
                         >
-                            {pt}
+                           <NodeTypeIcon type={pt} />
                         </button>
                     );
                 })}
@@ -155,7 +218,7 @@ const NumberInput: React.FC<{ label: string; value: number; onChange: (val: numb
             min={min}
             max={max}
             step={step}
-            className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+            className="bg-gray-700 border border-gray-600 rounded-md px-3 py-1.5 text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
         />
     </div>
 );
@@ -186,7 +249,7 @@ const TextInput: React.FC<{ label: string; value: string; onChange: (val: string
             value={value}
             onChange={(e) => onChange(e.target.value)}
             placeholder={placeholder}
-            className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+            className="bg-gray-700 border border-gray-600 rounded-md px-3 py-1.5 text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
         />
     </div>
 );
@@ -227,47 +290,31 @@ const ManualControls: React.FC<ManualControlsProps> = (props) => {
     };
 
     return (
-        <div className="flex flex-col h-full p-6">
-            <header className="shrink-0 mb-6">
-                 <h1 className="text-3xl font-bold text-white">Manual Editor</h1>
+        <div className="flex flex-col h-full">
+            <header className="shrink-0 p-6 pb-2">
+                 <h1 className="text-2xl font-bold text-white">Manual Editor</h1>
             </header>
-            <div className="flex-grow space-y-6 overflow-y-auto pr-2 -mr-2">
-                <ControlSection title="Canvas">
-                    <div className="flex flex-col space-y-2">
+            <div className="flex-grow overflow-y-auto">
+                <Accordion title="Canvas Actions">
+                    <div className="grid grid-cols-2 gap-2">
                          <input type="file" accept="image/*" onChange={handleFileChange} ref={fileInputRef} className="hidden" />
-                        <button onClick={() => fileInputRef.current?.click()} className="w-full bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition-colors text-sm">Upload Background</button>
-                        {backgroundImage && <button onClick={onRemoveImage} className="w-full bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition-colors text-sm">Remove Background</button>}
-                        <button onClick={onDownloadJson} className="w-full bg-green-700 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg transition-colors text-sm">Download JSON</button>
-                        <button onClick={onRemoveLastNode} className="w-full bg-yellow-700 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-lg transition-colors text-sm">Remove Last Node</button>
-                        <button onClick={onRemoveLastEdge} className="w-full bg-yellow-700 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-lg transition-colors text-sm">Remove Last Edge</button>
-                        <button onClick={props.onClearCanvas} className="w-full bg-red-800 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition-colors text-sm">Clear Canvas</button>
+                        <button onClick={() => fileInputRef.current?.click()} className="w-full bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition-colors text-sm">Upload BG</button>
+                        {backgroundImage && <button onClick={onRemoveImage} className="w-full bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition-colors text-sm">Remove BG</button>}
+                        <button onClick={onDownloadJson} className="w-full bg-green-700 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg transition-colors text-sm col-span-2">Download JSON</button>
+                        <button onClick={onRemoveLastNode} className="w-full bg-yellow-700 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-lg transition-colors text-sm">Undo Node</button>
+                        <button onClick={onRemoveLastEdge} className="w-full bg-yellow-700 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-lg transition-colors text-sm">Undo Edge</button>
+                        <button onClick={props.onClearCanvas} className="w-full bg-red-800 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition-colors text-sm col-span-2">Clear Canvas</button>
                     </div>
-                </ControlSection>
+                </Accordion>
 
-                <ControlSection title="Canvas Dimensions">
-                    <div className="grid grid-cols-2 gap-4">
-                        <NumberInput label="Width" value={canvasSize.width} onChange={v => onCanvasSizeChange('width', v)} min={100} max={2000} step={10} />
-                        <NumberInput label="Height" value={canvasSize.height} onChange={v => onCanvasSizeChange('height', v)} min={100} max={2000} step={10} />
-                    </div>
-                </ControlSection>
-
-                {backgroundImage && (
-                    <ControlSection title="Background Image">
-                        <SliderInput label="X Offset" value={backgroundImage.x} onChange={v => onBgImageChange('x', v)} min={-canvasSize.width} max={canvasSize.width} step={1} />
-                        <SliderInput label="Y Offset" value={backgroundImage.y} onChange={v => onBgImageChange('y', v)} min={-canvasSize.height} max={canvasSize.height} step={1} />
-                        <SliderInput label="Scale" value={backgroundImage.scale} onChange={v => onBgImageChange('scale', v)} min={0.1} max={5} step={0.05} />
-                        <SliderInput label="Opacity" value={backgroundImage.opacity} onChange={v => onBgImageChange('opacity', v)} min={0} max={1} step={0.05} />
-                    </ControlSection>
-                )}
-
-                <ControlSection title="Tools">
+                <Accordion title="Tools" defaultOpen>
                    <RadioGroup label="Active Tool" value={props.activeTool} onChange={v => props.setActiveTool(v as EditorTool)}
                         options={[{value: 'select', label: 'Select'}, {value: 'add', label: 'Add Node'}, {value: 'connect', label: 'Connect'}, {value: 'delete', label: 'Delete'}]}
                    />
                     <NodeTypePalette activePointType={props.activePointType} setActivePointType={props.setActivePointType} disabled={props.activeTool !== 'add'} />
-                </ControlSection>
-                
-                <ControlSection title="Selection Editor">
+                </Accordion>
+
+                <Accordion title="Selection Editor">
                     {selectedEdgeKeys.size === 0 && <p className="text-sm text-gray-400">Select an edge to edit its properties, or hold Shift to select multiple edges to create a route.</p>}
                     {selectedEdge && (
                         <>
@@ -283,9 +330,26 @@ const ManualControls: React.FC<ManualControlsProps> = (props) => {
                             <button onClick={handleCreateRouteClick} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors text-sm">Create Route</button>
                         </>
                     )}
-                </ControlSection>
+                </Accordion>
 
-                 <ControlSection title="Routes">
+                <Accordion title="Canvas & Background">
+                    <div className="grid grid-cols-2 gap-4">
+                        <NumberInput label="Width" value={canvasSize.width} onChange={v => onCanvasSizeChange('width', v)} min={100} max={2000} step={10} />
+                        <NumberInput label="Height" value={canvasSize.height} onChange={v => onCanvasSizeChange('height', v)} min={100} max={2000} step={10} />
+                    </div>
+                    {backgroundImage && (
+                        <div className="pt-4 border-t border-gray-700 space-y-3">
+                            <h3 className="text-sm font-medium text-gray-300">Background Image</h3>
+                            <SliderInput label="X Offset" value={backgroundImage.x} onChange={v => onBgImageChange('x', v)} min={-canvasSize.width} max={canvasSize.width} step={1} />
+                            <SliderInput label="Y Offset" value={backgroundImage.y} onChange={v => onBgImageChange('y', v)} min={-canvasSize.height} max={canvasSize.height} step={1} />
+                            <SliderInput label="Scale" value={backgroundImage.scale} onChange={v => onBgImageChange('scale', v)} min={0.1} max={5} step={0.05} />
+                            <SliderInput label="Opacity" value={backgroundImage.opacity} onChange={v => onBgImageChange('opacity', v)} min={0} max={1} step={0.05} />
+                        </div>
+                    )}
+                </Accordion>
+
+
+                 <Accordion title="Routes">
                     {routes.length === 0 ? <p className="text-sm text-gray-400">No routes defined yet.</p> : (
                         <ul className="space-y-2">
                             {routes.map(route => (
@@ -308,18 +372,18 @@ const ManualControls: React.FC<ManualControlsProps> = (props) => {
                             ))}
                         </ul>
                     )}
-                </ControlSection>
+                </Accordion>
 
-                <ControlSection title="Layout & Symmetry">
+                <Accordion title="Layout & Symmetry">
                     <RadioGroup label="Map Scope" value={props.mapScope} onChange={v => props.setMapScope(v as MapScope)} options={[{value: 'half', label: 'Half'}, {value: 'full', label: 'Full'}]} />
                     <RadioGroup label="Active Team" value={props.activeTeam} onChange={v => props.setActiveTeam(v as Team)} options={[{value: Team.BLUE, label: 'Blue'}, {value: Team.ORANGE, label: 'Orange'}]} disabled={props.mapScope === 'half'} />
-                    <RadioGroup label="Intra-Team Symmetry (for Half mode)" value={props.teamMirror} onChange={v => props.setTeamMirror(v as TeamMirrorAxis)} options={[{value: TeamMirrorAxis.NONE, label: 'None'}, {value: TeamMirrorAxis.HORIZONTAL, label: 'Horizontal'}]} disabled={props.mapScope === 'full'} />
+                    <RadioGroup label="Intra-Team Symmetry (Half Mode)" value={props.teamMirror} onChange={v => props.setTeamMirror(v as TeamMirrorAxis)} options={[{value: TeamMirrorAxis.NONE, label: 'None'}, {value: TeamMirrorAxis.HORIZONTAL, label: 'Horizontal'}]} disabled={props.mapScope === 'full'} />
                     <RadioGroup label="Inter-Team Symmetry" value={props.mapSymmetry} onChange={v => props.setMapSymmetry(v as SymmetryMode)} options={Object.values(SymmetryMode).map(m => ({value: m, label: m}))} disabled={props.mapScope === 'full'} />
-                </ControlSection>
+                </Accordion>
 
-                <ControlSection title="Visualization">
-                     <Checkbox label="Show Path Lengths" checked={vizOptions.showPathLengths} onChange={(v) => handleVizChange('showPathLengths', v)} />
-                </ControlSection>
+                <Accordion title="Visualization">
+                     <ToggleSwitch label="Show Path Lengths" checked={vizOptions.showPathLengths} onChange={(v) => handleVizChange('showPathLengths', v)} />
+                </Accordion>
             </div>
         </div>
     );

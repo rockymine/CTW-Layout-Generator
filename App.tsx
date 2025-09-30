@@ -329,7 +329,7 @@ const App: React.FC = () => {
         const getEdgeProps = (from: string, to: string) => {
             const key = makeEdgeKey(from, to);
             const sourceEdge = sourceEdges.find(p => makeEdgeKey(p.from, p.to) === key);
-            return { type: sourceEdge?.type, purpose: sourceEdge?.purpose };
+            return { type: sourceEdge?.type || 'walkable', purpose: sourceEdge?.purpose };
         };
 
         if (mapScope === 'full') {
@@ -342,62 +342,109 @@ const App: React.FC = () => {
             return { allNodes: nodesWithRoundedPos, allEdges: edgesWithNodes };
         }
 
+        // --- Data Migration for "Half" mode to generate clean IDs ---
+        // 1. Generate all node positions
+        const tempNodes: { originalId: string; team: Team; type: StrategicPointType; pos: Point; }[] = [];
+        const midX = canvasSize.width / 2;
+        const midY = canvasSize.height / 2;
+
         const blueSourceNodes = sourceNodes.filter(p => p.team === Team.BLUE);
-        let derivedBlueNodes: Node[] = [...blueSourceNodes];
         
+        // Add source blue nodes
+        blueSourceNodes.forEach(n => tempNodes.push({ ...n, originalId: n.id }));
+
+        // Add intra-team mirrored nodes
         if (teamMirror === TeamMirrorAxis.HORIZONTAL) {
-            const midY = canvasSize.height / 2;
-            blueSourceNodes.forEach(p => {
-                const mirroredId = `${p.id}-mirrored`;
-                if (Math.abs(p.pos.y - midY) > 0.1 && !derivedBlueNodes.find(dp => dp.id === mirroredId)) {
-                    derivedBlueNodes.push({ ...p, id: mirroredId, pos: { x: p.pos.x, y: 2 * midY - p.pos.y }});
+            blueSourceNodes.forEach(n => {
+                if (Math.abs(n.pos.y - midY) > 0.1) {
+                    tempNodes.push({ originalId: `${n.id}-mirrored`, team: Team.BLUE, type: n.type, pos: { x: n.pos.x, y: 2 * midY - n.pos.y } });
                 }
             });
         }
         
-        const midX = canvasSize.width / 2;
-        const nodesToMirror = derivedBlueNodes.filter(p => Math.abs(p.pos.x - midX) > 0.1);
-        const orangeNodes: Node[] = nodesToMirror.map(p => {
-            let newPos: Point;
-            if (mapSymmetry === SymmetryMode.MIRROR) {
-                newPos = { x: canvasSize.width - p.pos.x, y: p.pos.y };
-            } else {
-                newPos = { x: canvasSize.width - p.pos.x, y: canvasSize.height - p.pos.y };
+        // Add inter-team mirrored nodes
+        tempNodes.forEach(n => {
+            if (Math.abs(n.pos.x - midX) > 0.1) {
+                 let newPos: Point;
+                if (mapSymmetry === SymmetryMode.MIRROR) {
+                    newPos = { x: canvasSize.width - n.pos.x, y: n.pos.y };
+                } else { // ROTATION
+                    newPos = { x: canvasSize.width - n.pos.x, y: canvasSize.height - n.pos.y };
+                }
+                tempNodes.push({ ...n, team: Team.ORANGE, pos: newPos });
             }
-            return { ...p, id: p.id.replace(Team.BLUE, Team.ORANGE), team: Team.ORANGE, pos: newPos };
+        });
+        
+        // 2. Assign new, clean IDs
+        const finalNodes: Node[] = [];
+        const nodeCounters = new Map<string, number>();
+        const oldIdToNewIdMap = new Map<string, string>();
+
+        const sortedTempNodes = tempNodes.sort((a,b) => {
+            if (a.pos.y !== b.pos.y) return a.pos.y - b.pos.y;
+            return a.pos.x - b.pos.x;
         });
 
-        const allGeneratedNodes = [...derivedBlueNodes, ...orangeNodes].map(p => ({ ...p, pos: { x: Math.round(p.pos.x), y: Math.round(p.pos.y) }}));
-        
-        const finalEdges: Edge[] = [];
-        for (const edge of sourceEdges) {
-            const b_from = allGeneratedNodes.find(p => p.id === edge.from);
-            const b_to = allGeneratedNodes.find(p => p.id === edge.to);
-            if (!b_from || !b_to) continue;
+        for (const tempNode of sortedTempNodes) {
+             const key = `${tempNode.team}-${tempNode.type}`;
+            const index = (nodeCounters.get(key) || 0) + 1;
+            nodeCounters.set(key, index);
+            const abbr = NODE_TYPE_ABBREVIATIONS[tempNode.type];
+            const newId = `${tempNode.team}-${abbr}-${index}`;
             
-            const edgeProps = getEdgeProps(edge.from, edge.to);
-
-            if (!edge.isCrossTeam) {
-                finalEdges.push({ ...edge, ...edgeProps, nodes: [b_from.pos, b_to.pos] });
-                const b_from_is_midline = Math.abs(b_from.pos.x - midX) < 0.1;
-                const b_to_is_midline = Math.abs(b_to.pos.x - midX) < 0.1;
-                if (b_from_is_midline && b_to_is_midline) continue;
-                
-                const o_from_node = b_from_is_midline ? b_from : allGeneratedNodes.find(p => p.id === edge.from.replace(Team.BLUE, Team.ORANGE));
-                const o_to_node = b_to_is_midline ? b_to : allGeneratedNodes.find(p => p.id === edge.to.replace(Team.BLUE, Team.ORANGE));
-                    
-                if (o_from_node && o_to_node) {
-                    finalEdges.push({ from: o_from_node.id, to: o_to_node.id, ...edgeProps, nodes: [o_from_node.pos, o_to_node.pos] });
-                }
-            } else { 
-                const o_to = allGeneratedNodes.find(p => p.id === edge.to.replace(Team.BLUE, Team.ORANGE));
-                if (o_to) finalEdges.push({ from: b_from.id, to: o_to.id, ...edgeProps, nodes: [b_from.pos, o_to.pos] });
-                
-                const o_from = allGeneratedNodes.find(p => p.id === edge.from.replace(Team.BLUE, Team.ORANGE));
-                if (o_from) finalEdges.push({ from: o_from.id, to: b_to.id, ...edgeProps, nodes: [o_from.pos, b_to.pos] });
+            finalNodes.push({ id: newId, team: tempNode.team, type: tempNode.type, pos: { x: Math.round(tempNode.pos.x), y: Math.round(tempNode.pos.y) } });
+            
+            if (tempNode.originalId) { // This covers source nodes and their intra-team mirrors
+                const originalKey = `${tempNode.team}-${tempNode.originalId}`;
+                 oldIdToNewIdMap.set(originalKey, newId);
             }
         }
-        return { allNodes: allGeneratedNodes, allEdges: finalEdges };
+        
+        // 3. Re-create edges with new IDs
+        const finalEdges: Edge[] = [];
+        const finalEdgeKeys = new Set<string>();
+
+        for (const sourceEdge of sourceEdges) {
+            const fromBlueId = oldIdToNewIdMap.get(`${Team.BLUE}-${sourceEdge.from}`);
+            const toBlueId = oldIdToNewIdMap.get(`${Team.BLUE}-${sourceEdge.to}`);
+            
+            if (!fromBlueId || !toBlueId) continue;
+
+            const fromBlueNode = finalNodes.find(n => n.id === fromBlueId)!;
+            const toBlueNode = finalNodes.find(n => n.id === toBlueId)!;
+            const edgeProps = getEdgeProps(sourceEdge.from, sourceEdge.to);
+
+            // Add blue edge
+            const blueEdgeKey = makeEdgeKey(fromBlueId, toBlueId);
+            if (!finalEdgeKeys.has(blueEdgeKey)) {
+                finalEdges.push({ from: fromBlueId, to: toBlueId, ...edgeProps, nodes: [fromBlueNode.pos, toBlueNode.pos] });
+                finalEdgeKeys.add(blueEdgeKey);
+            }
+            
+            // Add mirrored orange edge
+            if (!sourceEdge.isCrossTeam) {
+                const isMidlineEdge = Math.abs(fromBlueNode.pos.x - midX) < 1 && Math.abs(toBlueNode.pos.x - midX) < 1;
+                if (isMidlineEdge) continue;
+
+                const fromOrangeNode = finalNodes.find(n => n.pos.x === Math.round(canvasSize.width - fromBlueNode.pos.x) && n.team === Team.ORANGE);
+                const toOrangeNode = finalNodes.find(n => n.pos.x === Math.round(canvasSize.width - toBlueNode.pos.x) && n.team === Team.ORANGE);
+
+                if (fromOrangeNode && toOrangeNode) {
+                    const orangeEdgeKey = makeEdgeKey(fromOrangeNode.id, toOrangeNode.id);
+                    if (!finalEdgeKeys.has(orangeEdgeKey)) {
+                         finalEdges.push({ from: fromOrangeNode.id, to: toOrangeNode.id, ...edgeProps, nodes: [fromOrangeNode.pos, toOrangeNode.pos] });
+                         finalEdgeKeys.add(orangeEdgeKey);
+                    }
+                }
+            } else { // Cross-team edges need special handling
+                 const fromOrangeNode = finalNodes.find(n => n.pos.x === Math.round(canvasSize.width - fromBlueNode.pos.x) && n.team === Team.ORANGE);
+                 if(fromOrangeNode) {
+                    finalEdges.push({ from: fromOrangeNode.id, to: toBlueId, ...edgeProps, nodes: [fromOrangeNode.pos, toBlueNode.pos] });
+                 }
+            }
+        }
+
+        return { allNodes: finalNodes, allEdges: finalEdges };
 
     }, [sourceNodes, sourceEdges, mapScope, teamMirror, mapSymmetry, canvasSize, mode]);
 
@@ -495,8 +542,8 @@ const App: React.FC = () => {
 
 
     return (
-        <div className="flex flex-col h-screen bg-gray-900 font-sans">
-            <header className="bg-gray-800 border-b border-gray-700 px-6 py-3 flex justify-between items-center z-20">
+        <div className="flex flex-col min-h-screen bg-gray-900 font-sans">
+            <header className="bg-gray-800 border-b border-gray-700 px-6 py-3 flex justify-between items-center z-20 shrink-0">
                  <h1 className="text-xl font-bold text-white">Minecraft CTW Tools</h1>
                  <div className="flex items-center space-x-2">
                      <ModeButton targetMode="generator">Generator</ModeButton>
@@ -504,7 +551,7 @@ const App: React.FC = () => {
                  </div>
             </header>
             <div className="flex flex-row flex-grow" style={{ height: 'calc(100vh - 61px)'}}>
-                <aside className="w-80 lg:w-96 bg-gray-800 shrink-0 h-full">
+                <aside className="w-80 lg:w-96 bg-gray-800 shrink-0 h-full border-r border-gray-700">
                     {mode === 'generator' ? (
                         <Controls
                             config={config}
@@ -591,8 +638,8 @@ const App: React.FC = () => {
                     )}
                 </main>
                 {isInfoPanelVisible && nodesForCoords.length > 0 && (
-                    <aside className="w-80 lg:w-96 bg-gray-800 shrink-0 h-full flex flex-col p-6 border-l border-gray-700">
-                        <header className="flex justify-between items-center shrink-0 mb-4 pb-3 border-b border-gray-700">
+                    <aside className="w-80 lg:w-96 bg-gray-800 shrink-0 h-full flex flex-col border-l border-gray-700">
+                        <header className="flex justify-between items-center shrink-0 p-6 pb-2 border-b border-gray-700">
                             <div className="flex items-center space-x-2">
                             <TabButton tabId="documentation">Documentation</TabButton>
                             <TabButton tabId="coordinates">Coordinates</TabButton>
@@ -601,7 +648,7 @@ const App: React.FC = () => {
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                             </button>
                         </header>
-                        <div className="flex-grow overflow-y-auto">
+                        <div className="flex-grow overflow-y-auto p-6">
                             {activeInfoTab === 'documentation' && <Documentation />}
                             {activeInfoTab === 'coordinates' && <CoordinateDisplay nodes={nodesForCoords} />}
                         </div>
