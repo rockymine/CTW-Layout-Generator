@@ -1,0 +1,5 @@
+{
+  "name": "Minecraft CTW Map Generator",
+  "description": "An automated system to generate balanced, tactically diverse battlefield layouts for Minecraft Capture the Wool. It creates randomized yet strategically sound maps with objectives, routes, and obstacles within a void-based architecture, complete with an interactive visualizer.",
+  "requestFramePermissions": []
+}
