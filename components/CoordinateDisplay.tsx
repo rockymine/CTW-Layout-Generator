@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Node, Team } from '../types';
 import { TEAM_COLORS } from './StrategicPointSymbol';
@@ -24,13 +25,15 @@ const TEAM_TEXT_COLORS: Record<Team, string> = {
 
 const CoordinateDisplay: React.FC<CoordinateDisplayProps> = ({ nodes }) => {
     
-    const nodesByTeam = nodes.reduce<Record<string, Node[]>>((acc, p) => {
+    // Fix: Use a typed initial value with type assertion for the reduce function to ensure correct type inference for `nodesByTeam`.
+    // This resolves issues with `reduce` not being treated as a generic function and subsequent type errors.
+    const nodesByTeam = nodes.reduce((acc, p) => {
         if (!acc[p.team]) {
             acc[p.team] = [];
         }
         acc[p.team].push(p);
         return acc;
-    }, {});
+    }, {} as Record<string, Node[]>);
 
     Object.values(nodesByTeam).forEach(teamNodes => {
         teamNodes.sort((a, b) => a.id.localeCompare(b.id));

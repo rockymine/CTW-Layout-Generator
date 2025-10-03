@@ -1,5 +1,7 @@
+
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { MapLayout, SymmetryMode, GridMode, Point, GeneratorConfig, VisualizationOptions, Node, Edge, StrategicPointType, Team, EditorTool, MapScope, TeamMirrorAxis, BackgroundImage, Route, EdgeType, NODE_TYPE_ABBREVIATIONS } from './types';
+// Fix: Import TeamLayout to correctly type team data structures.
+import { MapLayout, SymmetryMode, GridMode, Point, GeneratorConfig, VisualizationOptions, Node, Edge, StrategicPointType, Team, EditorTool, MapScope, TeamMirrorAxis, BackgroundImage, Route, EdgeType, NODE_TYPE_ABBREVIATIONS, TeamLayout } from './types';
 import { generateLayout } from './lib/mapGenerator';
 import Controls from './components/Controls';
 import ManualControls from './components/ManualControls';
@@ -453,8 +455,10 @@ const App: React.FC = () => {
         const filename = `ctw-map-${Date.now()}.json`;
 
         if (mode === 'generator' && layout) {
-            const allNodes = Object.values(layout.teams).flatMap(t => t?.nodes || []);
-            const allEdges = Object.values(layout.teams).flatMap(t => t?.edges || []);
+            // Fix: Explicitly type the parameter in flatMap to avoid 'unknown' type inference issues.
+            const allNodes = Object.values(layout.teams).flatMap((t: TeamLayout | undefined) => t?.nodes || []);
+            // Fix: Explicitly type the parameter in flatMap to avoid 'unknown' type inference issues.
+            const allEdges = Object.values(layout.teams).flatMap((t: TeamLayout | undefined) => t?.edges || []);
             dataToExport = {
                 width: layout.width,
                 height: layout.height,
@@ -499,7 +503,8 @@ const App: React.FC = () => {
 
     const nodesForCoords = useMemo(() => {
         if (mode === 'generator' && layout?.teams) {
-            return Object.values(layout.teams).flatMap(t => t?.nodes || []);
+            // Fix: Explicitly type the parameter in flatMap to avoid 'unknown' type inference issues.
+            return Object.values(layout.teams).flatMap((t: TeamLayout | undefined) => t?.nodes || []);
         }
         if (mode === 'manual') {
             return derivedManualLayout.allNodes;
