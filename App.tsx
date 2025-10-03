@@ -1,4 +1,5 @@
 
+
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 // Fix: Import TeamLayout to correctly type team data structures.
 import { MapLayout, SymmetryMode, GridMode, Point, GeneratorConfig, VisualizationOptions, Node, Edge, StrategicPointType, Team, EditorTool, MapScope, TeamMirrorAxis, BackgroundImage, Route, EdgeType, NODE_TYPE_ABBREVIATIONS, TeamLayout } from './types';
@@ -149,6 +150,7 @@ const App: React.FC = () => {
             };
             img.src = imgSrc;
         };
+        // Fix: Corrected a typo from the non-standard `readAsURL` to the correct `readAsDataURL` method.
         reader.readAsDataURL(file);
     };
 
@@ -197,16 +199,22 @@ const App: React.FC = () => {
         if (activeTool !== 'add') return;
 
         const team = mapScope === 'half' ? Team.BLUE : activeTeam;
-        const effectiveCanvasWidth = canvasSize.width;
-        const midX = effectiveCanvasWidth / 2;
+        const midX = canvasSize.width / 2;
+        const midY = canvasSize.height / 2;
         const snapThreshold = 5;
         let finalPos = { ...pos };
 
         if (mapScope === 'half') {
+            // Vertical snapping to team divider
             if (Math.abs(pos.x - midX) < snapThreshold) {
                 finalPos.x = midX;
             } else if (pos.x > midX) {
                  return; // Don't allow placing points on orange side in half mode
+            }
+            
+            // Horizontal snapping to intra-team symmetry line
+            if (teamMirror === TeamMirrorAxis.HORIZONTAL && Math.abs(pos.y - midY) < snapThreshold) {
+                finalPos.y = midY;
             }
         }
         
@@ -231,7 +239,7 @@ const App: React.FC = () => {
             team,
         };
         setSourceNodes(prev => [...prev, newNode]);
-    }, [activeTool, connectionStartNode, mapScope, activeTeam, canvasSize.width, activePointType, sourceNodes]);
+    }, [activeTool, connectionStartNode, mapScope, activeTeam, canvasSize, teamMirror, activePointType, sourceNodes]);
 
     const handleCanvasNodeClick = useCallback((node: Node) => {
         if (activeTool === 'connect') {
